@@ -218,21 +218,23 @@ let pendingRole = null, addPlayerDone = null, addTurfDone = null;
 let umpirePanelOpen = false;
 let pollHandle = null;
 
-/* ================= STORAGE (localStorage for Vercel) ================= */
+/* ================= STORAGE ================= */
 async function loadAll(){
-  try{ players = JSON.parse(localStorage.getItem('cc-players')||'[]'); }catch(e){ players=[]; }
-  try{ turfs = JSON.parse(localStorage.getItem('cc-turfs')||'[]'); }catch(e){ turfs=[]; }
-  try{ live = JSON.parse(localStorage.getItem('cc-live')||'null'); }catch(e){ live=null; }
-  try{ historyMatches = JSON.parse(localStorage.getItem('cc-history')||'[]'); }catch(e){ historyMatches=[]; }
+  try{ const r = await window.storage.get('cc-players', true); players = r ? JSON.parse(r.value) : []; }catch(e){ players = []; }
+  try{ const r = await window.storage.get('cc-turfs', true); turfs = r ? JSON.parse(r.value) : []; }catch(e){ turfs = []; }
+  try{ const r = await window.storage.get('cc-live', true); live = r ? JSON.parse(r.value) : null; }catch(e){ live = null; }
+  try{ const r = await window.storage.get('cc-history', true); historyMatches = r ? JSON.parse(r.value) : []; }catch(e){ historyMatches = []; }
   renderLoginScreen();
 }
-async function savePlayers(){ localStorage.setItem('cc-players', JSON.stringify(players)); }
-async function saveTurfs(){ localStorage.setItem('cc-turfs', JSON.stringify(turfs)); }
+async function savePlayers(){ try{ await window.storage.set('cc-players', JSON.stringify(players), true); }catch(e){ toast("Couldn't save — check connection"); } }
+async function saveTurfs(){ try{ await window.storage.set('cc-turfs', JSON.stringify(turfs), true); }catch(e){ toast("Couldn't save — check connection"); } }
 async function saveLive(){
-  if(live===null) localStorage.removeItem('cc-live');
-  else localStorage.setItem('cc-live', JSON.stringify(live));
+  try{
+    if(live === null){ try{ await window.storage.delete('cc-live', true); }catch(_){} }
+    else{ await window.storage.set('cc-live', JSON.stringify(live), true); }
+  }catch(e){ toast("Couldn't save — check connection"); }
 }
-async function saveHistory(){ localStorage.setItem('cc-history', JSON.stringify(historyMatches)); }
+async function saveHistory(){ try{ await window.storage.set('cc-history', JSON.stringify(historyMatches), true); }catch(e){ toast("Couldn't save — check connection"); } }
 
 /* ================= UTIL ================= */
 function uid(prefix){ return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,7); }
@@ -867,8 +869,9 @@ async function pollLive(){
   if(!activeTab || activeTab.dataset.tab!=='live') return;
   if(umpirePanelOpen) return;
   try{
-    const fresh = JSON.parse(localStorage.getItem('cc-live')||'null');
-    if(JSON.stringify(fresh)!==JSON.stringify(live)){ live=fresh; renderLive(); }
+    const r = await window.storage.get('cc-live', true);
+    const fresh = r ? JSON.parse(r.value) : null;
+    if(JSON.stringify(fresh)!==JSON.stringify(live)){ live = fresh; renderLive(); }
   }catch(e){
     if(live!==null){ live=null; renderLive(); }
   }
@@ -897,9 +900,24 @@ function renderHistory(){
       });
       html += '</table>';
     }
+    html += '<button class="btn danger block" style="margin-top:12px;" onclick="confirmDeleteMatch(\''+m.id+'\')">Delete this match</button>';
     html += '</details></div>';
   });
   document.getElementById('view-history').innerHTML = html;
+}
+function confirmDeleteMatch(matchId){
+  const m = historyMatches.find(x=>x.id===matchId);
+  if(!m) return;
+  openModal('Delete this match?', '<p class="muted" style="margin-top:0;">'+esc(m.name)+' &middot; '+m.totalRuns+'/'+m.totalWkts+'. This removes it from history and updates every player\'s stats right away. This can\'t be undone.</p><button class="btn danger block" onclick="deleteMatch(\''+matchId+'\')">Delete match</button><button class="btn ghost block" style="margin-top:8px;" onclick="closeModal()">Cancel</button>');
+}
+async function deleteMatch(matchId){
+  historyMatches = historyMatches.filter(m=>m.id!==matchId);
+  await saveHistory();
+  closeModal();
+  renderHistory();
+  renderStats();
+  renderMe();
+  toast('Match deleted — stats updated');
 }
 
 /* ================= STATS TAB ================= */
